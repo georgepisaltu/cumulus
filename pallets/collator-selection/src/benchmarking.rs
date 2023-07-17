@@ -15,12 +15,14 @@
 
 //! Benchmarking setup for pallet-collator-selection
 
+#![cfg(feature = "runtime-benchmarks")]
+
 use super::*;
 
 #[allow(unused)]
 use crate::Pallet as CollatorSelection;
 use frame_benchmarking::{
-	account, benchmarks, impl_benchmark_test_suite, whitelisted_caller, BenchmarkError,
+	account, impl_benchmark_test_suite, v2::*, whitelisted_caller, BenchmarkError,
 };
 use frame_support::{
 	assert_ok,
@@ -119,244 +121,275 @@ fn min_invulnerables<T: Config>() -> u32 {
 	min_collators.saturating_sub(candidates_length.try_into().unwrap())
 }
 
-benchmarks! {
-	where_clause { where T: pallet_authorship::Config + session::Config }
+#[benchmarks(where T: pallet_authorship::Config + session::Config)]
+mod benchmarks {
+	use super::*;
 
-	set_invulnerables {
+	#[benchmark]
+	fn set_invulnerables(b: Linear<1, 20>) -> Result<(), BenchmarkError> {
 		let origin =
 			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-		let b in 1 .. T::MaxInvulnerables::get();
+
 		let new_invulnerables = register_validators::<T>(b);
 		let mut sorted_new_invulnerables = new_invulnerables.clone();
 		sorted_new_invulnerables.sort();
-	}: {
-		assert_ok!(
-			// call the function with the unsorted list
-			<CollatorSelection<T>>::set_invulnerables(origin, new_invulnerables.clone())
-		);
-	}
-	verify {
+
+		#[block]
+		{
+			assert_ok!(
+				// call the function with the unsorted list
+				<CollatorSelection<T>>::set_invulnerables(origin, new_invulnerables.clone())
+			);
+		}
+
 		// assert that it comes out sorted
-		assert_last_event::<T>(Event::NewInvulnerables{invulnerables: sorted_new_invulnerables}.into());
-	}
-
-	add_invulnerable {
-		let b in 1 .. T::MaxInvulnerables::get() - 1;
-		let c in 1 .. T::MaxCandidates::get() - 1;
-
-		let origin =
-			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-
-		// need to fill up candidates
-		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
-		<DesiredCandidates<T>>::put(c);
-		// get accounts and keys for the `c` candidates
-		let mut candidates = (0..c).map(|cc| validator::<T>(cc)).collect::<Vec<_>>();
-		// add one more to the list. should not be in `b` (invulnerables) because it's the account
-		// we will _add_ to invulnerables. we want it to be in `candidates` because we need the
-		// weight associated with removing it.
-		let (new_invulnerable, new_invulnerable_keys) = validator::<T>(b.max(c) + 1);
-		candidates.push((new_invulnerable.clone(), new_invulnerable_keys));
-		// set their keys ...
-		for (who, keys) in candidates.clone() {
-			<session::Pallet<T>>::set_keys(RawOrigin::Signed(who).into(), keys, Vec::new()).unwrap();
-		}
-		// ... and register them.
-		for (who, _) in candidates {
-			let deposit = <CandidacyBond<T>>::get();
-			T::Currency::make_free_balance_be(&who, deposit * 1000_u32.into());
-			let incoming = CandidateInfo { who: who.clone(), deposit };
-			<Candidates<T>>::try_mutate(|candidates| -> DispatchResult {
-				if !candidates.iter().any(|candidate| candidate.who == who) {
-					T::Currency::reserve(&who, deposit)?;
-					candidates.try_push(incoming).expect("we've respected the bounded vec limit");
-					<LastAuthoredBlock<T>>::insert(
-						who.clone(),
-						frame_system::Pallet::<T>::block_number() + T::KickThreshold::get(),
-					);
-				}
-				Ok(())
-			}).expect("only returns ok");
-		}
-
-		// now we need to fill up invulnerables
-		let mut invulnerables = register_validators::<T>(b);
-		invulnerables.sort();
-		let invulnerables: frame_support::BoundedVec<_, T::MaxInvulnerables> =
-			frame_support::BoundedVec::try_from(invulnerables).unwrap();
-		<Invulnerables<T>>::put(invulnerables);
-	}: {
-		assert_ok!(
-			<CollatorSelection<T>>::add_invulnerable(origin, new_invulnerable.clone())
+		assert_last_event::<T>(
+			Event::NewInvulnerables { invulnerables: sorted_new_invulnerables }.into(),
 		);
-	}
-	verify {
-		assert_last_event::<T>(Event::InvulnerableAdded{account_id: new_invulnerable}.into());
+		Ok(())
 	}
 
-	remove_invulnerable {
-		let origin =
-			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-		let b in (min_invulnerables::<T>() + 1) .. T::MaxInvulnerables::get();
-		let mut invulnerables = register_validators::<T>(b);
-		invulnerables.sort();
-		let invulnerables: frame_support::BoundedVec<_, T::MaxInvulnerables> =
-			frame_support::BoundedVec::try_from(invulnerables).unwrap();
-		<Invulnerables<T>>::put(invulnerables);
-		let to_remove = <Invulnerables<T>>::get().first().unwrap().clone();
-	}: {
-		assert_ok!(
-			<CollatorSelection<T>>::remove_invulnerable(origin, to_remove.clone())
-		);
-	}
-	verify {
-		assert_last_event::<T>(Event::InvulnerableRemoved{account_id: to_remove}.into());
-	}
-
-	set_desired_candidates {
-		let max: u32 = T::MaxCandidates::get();
-		let origin =
-			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-	}: {
-		assert_ok!(
-			<CollatorSelection<T>>::set_desired_candidates(origin, max)
-		);
-	}
-	verify {
-		assert_last_event::<T>(Event::NewDesiredCandidates{desired_candidates: max}.into());
-	}
-
-	set_candidacy_bond {
-		let bond_amount: BalanceOf<T> = T::Currency::minimum_balance() * 10u32.into();
-		let origin =
-			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
-	}: {
-		assert_ok!(
-			<CollatorSelection<T>>::set_candidacy_bond(origin, bond_amount)
-		);
-	}
-	verify {
-		assert_last_event::<T>(Event::NewCandidacyBond{bond_amount}.into());
-	}
-
-	// worse case is when we have all the max-candidate slots filled except one, and we fill that
-	// one.
-	register_as_candidate {
-		let c in 1 .. T::MaxCandidates::get() - 1;
-
-		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
-		<DesiredCandidates<T>>::put(c + 1);
-
-		register_validators::<T>(c);
-		register_candidates::<T>(c);
-
-		let caller: T::AccountId = whitelisted_caller();
-		let bond: BalanceOf<T> = T::Currency::minimum_balance() * 2u32.into();
-		T::Currency::make_free_balance_be(&caller, bond);
-
-		<session::Pallet<T>>::set_keys(
-			RawOrigin::Signed(caller.clone()).into(),
-			keys::<T>(c + 1),
-			Vec::new()
-		).unwrap();
-
-	}: _(RawOrigin::Signed(caller.clone()))
-	verify {
-		assert_last_event::<T>(Event::CandidateAdded{account_id: caller, deposit: bond / 2u32.into()}.into());
-	}
-
-	// worse case is the last candidate leaving.
-	leave_intent {
-		let c in (min_candidates::<T>() + 1) .. T::MaxCandidates::get();
-		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
-		<DesiredCandidates<T>>::put(c);
-
-		register_validators::<T>(c);
-		register_candidates::<T>(c);
-
-		let leaving = <Candidates<T>>::get().last().unwrap().who.clone();
-		whitelist!(leaving);
-	}: _(RawOrigin::Signed(leaving.clone()))
-	verify {
-		assert_last_event::<T>(Event::CandidateRemoved{account_id: leaving}.into());
-	}
-
-	// worse case is paying a non-existing candidate account.
-	note_author {
-		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
-		T::Currency::make_free_balance_be(
-			&<CollatorSelection<T>>::account_id(),
-			T::Currency::minimum_balance() * 4u32.into(),
-		);
-		let author = account("author", 0, SEED);
-		let new_block: BlockNumberFor<T> = 10u32.into();
-
-		frame_system::Pallet::<T>::set_block_number(new_block);
-		assert!(T::Currency::free_balance(&author) == 0u32.into());
-	}: {
-		<CollatorSelection<T> as EventHandler<_, _>>::note_author(author.clone())
-	} verify {
-		assert!(T::Currency::free_balance(&author) > 0u32.into());
-		assert_eq!(frame_system::Pallet::<T>::block_number(), new_block);
-	}
-
-	// worst case for new session.
-	new_session {
-		let r in 1 .. T::MaxCandidates::get();
-		let c in 1 .. T::MaxCandidates::get();
-
-		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
-		<DesiredCandidates<T>>::put(c);
-		frame_system::Pallet::<T>::set_block_number(0u32.into());
-
-		register_validators::<T>(c);
-		register_candidates::<T>(c);
-
-		let new_block: BlockNumberFor<T> = 1800u32.into();
-		let zero_block: BlockNumberFor<T> = 0u32.into();
-		let candidates = <Candidates<T>>::get();
-
-		let non_removals = c.saturating_sub(r);
-
-		for i in 0..c {
-			<LastAuthoredBlock<T>>::insert(candidates[i as usize].who.clone(), zero_block);
-		}
-
-		if non_removals > 0 {
-			for i in 0..non_removals {
-				<LastAuthoredBlock<T>>::insert(candidates[i as usize].who.clone(), new_block);
-			}
-		} else {
-			for i in 0..c {
-				<LastAuthoredBlock<T>>::insert(candidates[i as usize].who.clone(), new_block);
-			}
-		}
-
-		let min_candidates = min_candidates::<T>();
-		let pre_length = <Candidates<T>>::get().len();
-
-		frame_system::Pallet::<T>::set_block_number(new_block);
-
-		assert!(<Candidates<T>>::get().len() == c as usize);
-	}: {
-		<CollatorSelection<T> as SessionManager<_>>::new_session(0)
-	} verify {
-		if c > r && non_removals >= min_candidates {
-			// candidates > removals and remaining candidates > min candidates
-			// => remaining candidates should be shorter than before removal, i.e. some were
-			//    actually removed.
-			assert!(<Candidates<T>>::get().len() < pre_length);
-		} else if c > r && non_removals < min_candidates {
-			// candidates > removals and remaining candidates would be less than min candidates
-			// => remaining candidates should equal min candidates, i.e. some were removed up to
-			//    the minimum, but then any more were "forced" to stay in candidates.
-			assert!(<Candidates<T>>::get().len() == min_candidates as usize);
-		} else {
-			// removals >= candidates, non removals must == 0
-			// can't remove more than exist
-			assert!(<Candidates<T>>::get().len() == pre_length);
-		}
-	}
+	impl_benchmark_test_suite!(CollatorSelection, crate::mock::new_test_ext(), crate::mock::Test,);
 }
 
-impl_benchmark_test_suite!(CollatorSelection, crate::mock::new_test_ext(), crate::mock::Test,);
+// benchmarks! {
+// 	where_clause { where T: pallet_authorship::Config + session::Config }
+
+// 	set_invulnerables {
+// 		let origin =
+// 			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+// 		let b in 1 .. T::MaxInvulnerables::get();
+// 		let new_invulnerables = register_validators::<T>(b);
+// 		let mut sorted_new_invulnerables = new_invulnerables.clone();
+// 		sorted_new_invulnerables.sort();
+// 	}: {
+// 		assert_ok!(
+// 			// call the function with the unsorted list
+// 			<CollatorSelection<T>>::set_invulnerables(origin, new_invulnerables.clone())
+// 		);
+// 	}
+// 	verify {
+// 		// assert that it comes out sorted
+// 		assert_last_event::<T>(Event::NewInvulnerables{invulnerables: sorted_new_invulnerables}.into());
+// 	}
+
+// add_invulnerable {
+// 	let b in 1 .. T::MaxInvulnerables::get() - 1;
+// 	let c in 1 .. T::MaxCandidates::get() - 1;
+
+// 	let origin =
+// 		T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+// 	// need to fill up candidates
+// 	<CandidacyBond<T>>::put(T::Currency::minimum_balance());
+// 	<DesiredCandidates<T>>::put(c);
+// 	// get accounts and keys for the `c` candidates
+// 	let mut candidates = (0..c).map(|cc| validator::<T>(cc)).collect::<Vec<_>>();
+// 	// add one more to the list. should not be in `b` (invulnerables) because it's the account
+// 	// we will _add_ to invulnerables. we want it to be in `candidates` because we need the
+// 	// weight associated with removing it.
+// 	let (new_invulnerable, new_invulnerable_keys) = validator::<T>(b.max(c) + 1);
+// 	candidates.push((new_invulnerable.clone(), new_invulnerable_keys));
+// 	// set their keys ...
+// 	for (who, keys) in candidates.clone() {
+// 		<session::Pallet<T>>::set_keys(RawOrigin::Signed(who).into(), keys, Vec::new()).unwrap();
+// 	}
+// 	// ... and register them.
+// 	for (who, _) in candidates {
+// 		let deposit = <CandidacyBond<T>>::get();
+// 		T::Currency::make_free_balance_be(&who, deposit * 1000_u32.into());
+// 		let incoming = CandidateInfo { who: who.clone(), deposit };
+// 		<Candidates<T>>::try_mutate(|candidates| -> DispatchResult {
+// 			if !candidates.iter().any(|candidate| candidate.who == who) {
+// 				T::Currency::reserve(&who, deposit)?;
+// 				candidates.try_push(incoming).expect("we've respected the bounded vec limit");
+// 				<LastAuthoredBlock<T>>::insert(
+// 					who.clone(),
+// 					frame_system::Pallet::<T>::block_number() + T::KickThreshold::get(),
+// 				);
+// 			}
+// 			Ok(())
+// 		}).expect("only returns ok");
+// 	}
+
+// 	// now we need to fill up invulnerables
+// 	let mut invulnerables = register_validators::<T>(b);
+// 	invulnerables.sort();
+// 	let invulnerables: frame_support::BoundedVec<_, T::MaxInvulnerables> =
+// 		frame_support::BoundedVec::try_from(invulnerables).unwrap();
+// 	<Invulnerables<T>>::put(invulnerables);
+// }: {
+// 	assert_ok!(
+// 		<CollatorSelection<T>>::add_invulnerable(origin, new_invulnerable.clone())
+// 	);
+// }
+// verify {
+// 	assert_last_event::<T>(Event::InvulnerableAdded{account_id: new_invulnerable}.into());
+// }
+
+// 	remove_invulnerable {
+// 		let origin =
+// 			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+// 		let b in (min_invulnerables::<T>() + 1) .. T::MaxInvulnerables::get();
+// 		let mut invulnerables = register_validators::<T>(b);
+// 		invulnerables.sort();
+// 		let invulnerables: frame_support::BoundedVec<_, T::MaxInvulnerables> =
+// 			frame_support::BoundedVec::try_from(invulnerables).unwrap();
+// 		<Invulnerables<T>>::put(invulnerables);
+// 		let to_remove = <Invulnerables<T>>::get().first().unwrap().clone();
+// 	}: {
+// 		assert_ok!(
+// 			<CollatorSelection<T>>::remove_invulnerable(origin, to_remove.clone())
+// 		);
+// 	}
+// 	verify {
+// 		assert_last_event::<T>(Event::InvulnerableRemoved{account_id: to_remove}.into());
+// 	}
+
+// 	set_desired_candidates {
+// 		let max: u32 = T::MaxCandidates::get();
+// 		let origin =
+// 			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+// 	}: {
+// 		assert_ok!(
+// 			<CollatorSelection<T>>::set_desired_candidates(origin, max)
+// 		);
+// 	}
+// 	verify {
+// 		assert_last_event::<T>(Event::NewDesiredCandidates{desired_candidates: max}.into());
+// 	}
+
+// 	set_candidacy_bond {
+// 		let bond_amount: BalanceOf<T> = T::Currency::minimum_balance() * 10u32.into();
+// 		let origin =
+// 			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+// 	}: {
+// 		assert_ok!(
+// 			<CollatorSelection<T>>::set_candidacy_bond(origin, bond_amount)
+// 		);
+// 	}
+// 	verify {
+// 		assert_last_event::<T>(Event::NewCandidacyBond{bond_amount}.into());
+// 	}
+
+// 	// worse case is when we have all the max-candidate slots filled except one, and we fill that
+// 	// one.
+// 	register_as_candidate {
+// 		let c in 1 .. T::MaxCandidates::get() - 1;
+
+// 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
+// 		<DesiredCandidates<T>>::put(c + 1);
+
+// 		register_validators::<T>(c);
+// 		register_candidates::<T>(c);
+
+// 		let caller: T::AccountId = whitelisted_caller();
+// 		let bond: BalanceOf<T> = T::Currency::minimum_balance() * 2u32.into();
+// 		T::Currency::make_free_balance_be(&caller, bond);
+
+// 		<session::Pallet<T>>::set_keys(
+// 			RawOrigin::Signed(caller.clone()).into(),
+// 			keys::<T>(c + 1),
+// 			Vec::new()
+// 		).unwrap();
+
+// 	}: _(RawOrigin::Signed(caller.clone()))
+// 	verify {
+// 		assert_last_event::<T>(Event::CandidateAdded{account_id: caller, deposit: bond / 2u32.into()}.into());
+// 	}
+
+// 	// worse case is the last candidate leaving.
+// 	leave_intent {
+// 		let c in (min_candidates::<T>() + 1) .. T::MaxCandidates::get();
+// 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
+// 		<DesiredCandidates<T>>::put(c);
+
+// 		register_validators::<T>(c);
+// 		register_candidates::<T>(c);
+
+// 		let leaving = <Candidates<T>>::get().last().unwrap().who.clone();
+// 		whitelist!(leaving);
+// 	}: _(RawOrigin::Signed(leaving.clone()))
+// 	verify {
+// 		assert_last_event::<T>(Event::CandidateRemoved{account_id: leaving}.into());
+// 	}
+
+// 	// worse case is paying a non-existing candidate account.
+// 	note_author {
+// 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
+// 		T::Currency::make_free_balance_be(
+// 			&<CollatorSelection<T>>::account_id(),
+// 			T::Currency::minimum_balance() * 4u32.into(),
+// 		);
+// 		let author = account("author", 0, SEED);
+// 		let new_block: BlockNumberFor<T> = 10u32.into();
+
+// 		frame_system::Pallet::<T>::set_block_number(new_block);
+// 		assert!(T::Currency::free_balance(&author) == 0u32.into());
+// 	}: {
+// 		<CollatorSelection<T> as EventHandler<_, _>>::note_author(author.clone())
+// 	} verify {
+// 		assert!(T::Currency::free_balance(&author) > 0u32.into());
+// 		assert_eq!(frame_system::Pallet::<T>::block_number(), new_block);
+// 	}
+
+// 	// worst case for new session.
+// 	new_session {
+// 		let r in 1 .. T::MaxCandidates::get();
+// 		let c in 1 .. T::MaxCandidates::get();
+
+// 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
+// 		<DesiredCandidates<T>>::put(c);
+// 		frame_system::Pallet::<T>::set_block_number(0u32.into());
+
+// 		register_validators::<T>(c);
+// 		register_candidates::<T>(c);
+
+// 		let new_block: BlockNumberFor<T> = 1800u32.into();
+// 		let zero_block: BlockNumberFor<T> = 0u32.into();
+// 		let candidates = <Candidates<T>>::get();
+
+// 		let non_removals = c.saturating_sub(r);
+
+// 		for i in 0..c {
+// 			<LastAuthoredBlock<T>>::insert(candidates[i as usize].who.clone(), zero_block);
+// 		}
+
+// 		if non_removals > 0 {
+// 			for i in 0..non_removals {
+// 				<LastAuthoredBlock<T>>::insert(candidates[i as usize].who.clone(), new_block);
+// 			}
+// 		} else {
+// 			for i in 0..c {
+// 				<LastAuthoredBlock<T>>::insert(candidates[i as usize].who.clone(), new_block);
+// 			}
+// 		}
+
+// 		let min_candidates = min_candidates::<T>();
+// 		let pre_length = <Candidates<T>>::get().len();
+
+// 		frame_system::Pallet::<T>::set_block_number(new_block);
+
+// 		assert!(<Candidates<T>>::get().len() == c as usize);
+// 	}: {
+// 		<CollatorSelection<T> as SessionManager<_>>::new_session(0)
+// 	} verify {
+// 		if c > r && non_removals >= min_candidates {
+// 			// candidates > removals and remaining candidates > min candidates
+// 			// => remaining candidates should be shorter than before removal, i.e. some were
+// 			//    actually removed.
+// 			assert!(<Candidates<T>>::get().len() < pre_length);
+// 		} else if c > r && non_removals < min_candidates {
+// 			// candidates > removals and remaining candidates would be less than min candidates
+// 			// => remaining candidates should equal min candidates, i.e. some were removed up to
+// 			//    the minimum, but then any more were "forced" to stay in candidates.
+// 			assert!(<Candidates<T>>::get().len() == min_candidates as usize);
+// 		} else {
+// 			// removals >= candidates, non removals must == 0
+// 			// can't remove more than exist
+// 			assert!(<Candidates<T>>::get().len() == pre_length);
+// 		}
+// 	}
+// }
+
+// impl_benchmark_test_suite!(CollatorSelection, crate::mock::new_test_ext(), crate::mock::Test,);

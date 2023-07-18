@@ -150,7 +150,7 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn add_invulnerable(b: Linear<1, 20>, c: Linear<1, 20>) -> Result<(), BenchmarkError> {
+	fn add_invulnerable(b: Linear<1, 19>, c: Linear<1, 99>) -> Result<(), BenchmarkError> {
 		// let b in 1 .. T::MaxInvulnerables::get() - 1;
 		// let c in 1 .. T::MaxCandidates::get() - 1;
 
@@ -208,7 +208,7 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn remove_invulnerable(b: Linear<1, 20>) -> Result<(), BenchmarkError> {
+	fn remove_invulnerable(b: Linear<10, 15>) -> Result<(), BenchmarkError> {
 		let origin =
 			T::UpdateOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		// let b in (min_invulnerables::<T>() + 1) .. T::MaxInvulnerables::get();
@@ -261,7 +261,7 @@ mod benchmarks {
 	// worse case is when we have all the max-candidate slots filled except one, and we fill that
 	// one.
 	#[benchmark]
-	fn register_as_candidate(c: Linear<1, 20>) {
+	fn register_as_candidate(c: Linear<1, 99>) {
 		// let c in 1 .. T::MaxCandidates::get() - 1;
 
 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
@@ -291,7 +291,7 @@ mod benchmarks {
 
 	// worse case is the last candidate leaving.
 	#[benchmark]
-	fn leave_intent(c: Linear<1, 20>) {
+	fn leave_intent(c: Linear<6, 100>) {
 		// let c in (min_candidates::<T>() + 1) .. T::MaxCandidates::get();
 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
 		<DesiredCandidates<T>>::put(c);
@@ -334,7 +334,7 @@ mod benchmarks {
 
 	// worst case for new session.
 	#[benchmark]
-	fn new_session(r: Linear<1, 20>, c: Linear<1, 20>) {
+	fn new_session(r: Linear<1, 100>, c: Linear<1, 100>) {
 		// let r in 1 .. T::MaxCandidates::get();
 		// let c in 1 .. T::MaxCandidates::get();
 

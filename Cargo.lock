@@ -1699,8 +1699,11 @@ version = "0.1.0"
 dependencies = [
  "frame-support",
  "frame-system",
+ "pallet-bags-list",
  "parity-scale-codec",
  "scale-info",
+ "sp-npos-elections",
+ "sp-std",
 ]
 
 [[package]]

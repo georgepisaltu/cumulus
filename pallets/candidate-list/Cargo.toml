@@ -6,10 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-frame-support = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "master"}
-frame-system = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "master" }
-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive",] }
-scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+frame-support = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "master"}
+frame-system = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "master" }
+pallet-bags-list = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "master" }
+codec = { package = "parity-scale-codec", default-features = false, features = ["derive",] }
+scale-info = { default-features = false, features = ["derive"] }
+sp-std = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "master" }
+sp-npos-elections = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "master" }
 
 [features]
 default = ["std"]
@@ -18,4 +21,6 @@ std = [
   "frame-system/std",
   "codec/std",
   "scale-info/std",
+  "sp-std/std",
+  "sp-npos-elections/std"
 ]

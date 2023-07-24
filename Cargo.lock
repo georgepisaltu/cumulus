@@ -8204,6 +8204,7 @@ name = "pallet-collator-selection"
 version = "3.0.0"
 dependencies = [
  "frame-benchmarking",
+ "frame-election-provider-support",
  "frame-support",
  "frame-system",
  "log",
@@ -9341,6 +9342,7 @@ dependencies = [
  "log",
  "pallet-aura",
  "pallet-authorship",
+ "pallet-bags-list",
  "pallet-balances",
  "pallet-collator-selection",
  "pallet-parachain-template",

@@ -268,6 +268,10 @@ pub mod pallet {
 		NewCandidacyBond { bond_amount: BalanceOf<T> },
 		/// A new candidate joined.
 		CandidateAdded { account_id: T::AccountId, deposit: BalanceOf<T> },
+		/// A new candidate joined.
+		CandidateBondIncreased { account_id: T::AccountId, deposit: BalanceOf<T> },
+		/// A new candidate joined.
+		CandidateBondDecreased { account_id: T::AccountId, deposit: BalanceOf<T> },
 		/// A candidate was removed.
 		CandidateRemoved { account_id: T::AccountId },
 		/// An account was unable to be added to the Invulnerables because they did not have keys
@@ -299,6 +303,8 @@ pub mod pallet {
 		OnInsert,
 		/// Some doc.
 		OnRemove,
+		/// Some doc.
+		OnRemoveInsufficientFunds,
 		/// Some doc.
 		OnIncrease,
 	}
@@ -574,7 +580,7 @@ pub mod pallet {
 		///
 		/// Todo
 		#[pallet::call_index(7)]
-		#[pallet::weight(T::WeightInfo::set_candidacy_bond())]
+		#[pallet::weight(T::WeightInfo::increase_bond(T::MaxCandidates::get()))]
 		pub fn increase_bond(origin: OriginFor<T>, bond: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
@@ -583,12 +589,57 @@ pub mod pallet {
 					.iter_mut()
 					.find(|candidate_info| candidate_info.who == who)
 					.ok_or_else(|| Error::<T>::NotCandidate)?;
-				candidate_info.deposit.saturating_add(bond);
+				candidate_info.deposit = candidate_info.deposit.saturating_add(bond);
+				T::Currency::reserve(&who, bond)?;
 				T::CandidateList::on_increase(&who, bond).map_err(|_| Error::<T>::OnIncrease)?;
 				Ok(())
 			})?;
 
-			Self::deposit_event(Event::InvulnerableRemoved { account_id: who });
+			let new_bond = <Candidates<T>>::get()
+				.iter()
+				.find(|candidate_info| candidate_info.who == who)
+				.map(|candidate_info| candidate_info.deposit)
+				.unwrap();
+
+			Self::deposit_event(Event::CandidateBondIncreased {
+				account_id: who,
+				deposit: new_bond,
+			});
+			Ok(())
+		}
+
+		/// Todo
+		///
+		/// Todo
+		#[pallet::call_index(8)]
+		#[pallet::weight(T::WeightInfo::decrease_bond(T::MaxCandidates::get()))]
+		pub fn decrease_bond(origin: OriginFor<T>, bond: BalanceOf<T>) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			<Candidates<T>>::try_mutate(|candidates| -> DispatchResult {
+				let candidate_info = candidates
+					.iter_mut()
+					.find(|candidate_info| candidate_info.who == who)
+					.ok_or_else(|| Error::<T>::NotCandidate)?;
+				candidate_info.deposit = candidate_info.deposit.saturating_sub(bond);
+				if candidate_info.deposit < <CandidacyBond<T>>::get() {
+					return Err(Error::<T>::OnRemoveInsufficientFunds.into())
+				}
+				T::Currency::unreserve(&who, bond);
+				T::CandidateList::on_decrease(&who, bond).map_err(|_| Error::<T>::OnIncrease)?;
+				Ok(())
+			})?;
+
+			let new_bond = <Candidates<T>>::get()
+				.iter()
+				.find(|candidate_info| candidate_info.who == who)
+				.map(|candidate_info| candidate_info.deposit)
+				.unwrap();
+
+			Self::deposit_event(Event::CandidateBondDecreased {
+				account_id: who,
+				deposit: new_bond,
+			});
 			Ok(())
 		}
 	}

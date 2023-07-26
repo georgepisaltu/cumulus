@@ -445,7 +445,7 @@ pub mod pallet {
 
 			// ensure we are below limit.
 			let length = <Candidates<T>>::decode_len().unwrap_or_default();
-			ensure!((length as u32) < Self::desired_candidates(), Error::<T>::TooManyCandidates);
+			ensure!((length as u32) < T::MaxCandidates::get(), Error::<T>::TooManyCandidates);
 			ensure!(!Self::invulnerables().contains(&who), Error::<T>::AlreadyInvulnerable);
 
 			let validator_key = T::ValidatorIdOf::convert(who.clone())
@@ -581,7 +581,7 @@ pub mod pallet {
 		///
 		/// Todo
 		#[pallet::call_index(7)]
-		#[pallet::weight(T::WeightInfo::increase_bond(T::MaxCandidates::get()))]
+		#[pallet::weight(T::WeightInfo::increase_bond(T::MaxCandidates::get().saturating_sub(1)))]
 		pub fn increase_bond(origin: OriginFor<T>, bond: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
@@ -613,7 +613,7 @@ pub mod pallet {
 		///
 		/// Todo
 		#[pallet::call_index(8)]
-		#[pallet::weight(T::WeightInfo::decrease_bond(T::MaxCandidates::get()))]
+		#[pallet::weight(T::WeightInfo::decrease_bond(T::MaxCandidates::get().saturating_sub(1)))]
 		pub fn decrease_bond(origin: OriginFor<T>, bond: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 

@@ -246,6 +246,7 @@ mod benchmarks {
 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
 		<DesiredCandidates<T>>::put(c);
 
+		register_validators::<T>(c);
 		register_candidates::<T>(c);
 
 		let caller = <Candidates<T>>::get().last().unwrap().who.clone();
@@ -277,6 +278,7 @@ mod benchmarks {
 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
 		<DesiredCandidates<T>>::put(c);
 
+		register_validators::<T>(c);
 		register_candidates::<T>(c);
 
 		let caller = <Candidates<T>>::get().last().unwrap().who.clone();

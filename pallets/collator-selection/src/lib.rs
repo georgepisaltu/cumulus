@@ -581,7 +581,7 @@ pub mod pallet {
 		///
 		/// Todo
 		#[pallet::call_index(7)]
-		#[pallet::weight(T::WeightInfo::increase_bond(T::MaxCandidates::get().saturating_sub(1)))]
+		#[pallet::weight(T::WeightInfo::increase_bond(T::MaxCandidates::get()))]
 		pub fn increase_bond(origin: OriginFor<T>, bond: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
@@ -613,7 +613,7 @@ pub mod pallet {
 		///
 		/// Todo
 		#[pallet::call_index(8)]
-		#[pallet::weight(T::WeightInfo::decrease_bond(T::MaxCandidates::get().saturating_sub(1)))]
+		#[pallet::weight(T::WeightInfo::decrease_bond(T::MaxCandidates::get()))]
 		pub fn decrease_bond(origin: OriginFor<T>, bond: BalanceOf<T>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 

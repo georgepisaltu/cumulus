@@ -736,25 +736,49 @@ fn session_management_works() {
 
 		// add a new collator
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(3)));
+		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(4)));
+		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
 
 		// session won't see this.
 		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
 		// but we have a new candidate.
-		assert_eq!(CollatorSelection::candidates().len(), 1);
+		assert_eq!(CollatorSelection::candidates().len(), 3);
 
 		initialize_to_block(10);
 		assert_eq!(SessionChangeBlock::get(), 10);
 		// pallet-session has 1 session delay; current validators are the same.
 		assert_eq!(Session::validators(), vec![1, 2]);
 		// queued ones are changed, and now we have 3.
-		assert_eq!(Session::queued_keys().len(), 3);
+		assert_eq!(Session::queued_keys().len(), 4);
 		// session handlers (aura, et. al.) cannot see this yet.
 		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
 
 		initialize_to_block(20);
 		assert_eq!(SessionChangeBlock::get(), 20);
 		// changed are now reflected to session handlers.
-		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 3]);
+		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 3, 4]);
+
+		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 50));
+
+		initialize_to_block(30);
+		assert_eq!(SessionChangeBlock::get(), 30);
+		// changed are now reflected to session handlers.
+		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 3, 4]);
+
+		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(3)));
+		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
+		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 50));
+		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 3));
+
+		initialize_to_block(40);
+		assert_eq!(SessionChangeBlock::get(), 40);
+		// changed are now reflected to session handlers.
+		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 3, 4]);
+
+		initialize_to_block(50);
+		assert_eq!(SessionChangeBlock::get(), 50);
+		// changed are now reflected to session handlers.
+		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 5, 3]);
 	});
 }
 

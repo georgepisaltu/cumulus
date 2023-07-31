@@ -93,10 +93,17 @@ fn register_candidates<T: Config>(count: u32) {
 	let candidates = (0..count).map(|c| account("candidate", c, SEED)).collect::<Vec<_>>();
 	assert!(<CandidacyBond<T>>::get() > 0u32.into(), "Bond cannot be zero!");
 
-	for who in candidates {
+	for (idx, who) in candidates.iter().enumerate() {
 		// TODO[GMP] revisit this, need it for Currency reserve in increase_bid
-		T::Currency::make_free_balance_be(&who, <CandidacyBond<T>>::get() * 3u32.into());
-		<CollatorSelection<T>>::register_as_candidate(RawOrigin::Signed(who).into()).unwrap();
+		T::Currency::make_free_balance_be(
+			who,
+			<CandidacyBond<T>>::get() * 4u32.into() + count.into(),
+		);
+		<CollatorSelection<T>>::register_as_candidate(
+			RawOrigin::Signed(who.clone()).into(),
+			<CandidacyBond<T>>::get() + (idx as u32).into(),
+		)
+		.unwrap();
 	}
 }
 
@@ -309,7 +316,7 @@ mod benchmarks {
 	// worse case is when we have all the max-candidate slots filled except one, and we fill that
 	// one.
 	#[benchmark]
-	fn register_as_candidate(c: Linear<1, { T::MaxCandidates::get() - 1 }>) {
+	fn register_as_candidate_unsaturated(c: Linear<1, { T::MaxCandidates::get() - 1 }>) {
 		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
 		<DesiredCandidates<T>>::put(c + 1);
 
@@ -328,10 +335,49 @@ mod benchmarks {
 		.unwrap();
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()));
+		register_as_candidate(
+			RawOrigin::Signed(caller.clone()),
+			T::Currency::minimum_balance() + c.into(),
+		);
 
 		assert_last_event::<T>(
 			Event::CandidateAdded { account_id: caller, deposit: bond / 2u32.into() }.into(),
+		);
+	}
+
+	// worse case is when we have all the max-candidate slots filled except one, and we fill that
+	// one.
+	#[benchmark]
+	fn register_as_candidate_saturated(c: Linear<1, { T::MaxCandidates::get() - 1 }>) {
+		<CandidacyBond<T>>::put(T::Currency::minimum_balance());
+		<DesiredCandidates<T>>::put(1);
+
+		register_validators::<T>(c);
+		register_candidates::<T>(c);
+
+		let caller: T::AccountId = whitelisted_caller();
+		let bond: BalanceOf<T> = T::Currency::minimum_balance() * 4u32.into() + c.into();
+		T::Currency::make_free_balance_be(&caller, bond);
+
+		<session::Pallet<T>>::set_keys(
+			RawOrigin::Signed(caller.clone()).into(),
+			keys::<T>(c + 1),
+			Vec::new(),
+		)
+		.unwrap();
+
+		#[extrinsic_call]
+		register_as_candidate(
+			RawOrigin::Signed(caller.clone()),
+			T::Currency::minimum_balance() + 2u32.into(),
+		);
+
+		assert_last_event::<T>(
+			Event::CandidateAdded {
+				account_id: caller,
+				deposit: T::Currency::minimum_balance() + 2u32.into(),
+			}
+			.into(),
 		);
 	}
 

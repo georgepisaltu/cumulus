@@ -771,6 +771,8 @@ pub mod pallet {
 
 		/// Kicks out candidates that did not produce a block in the kick threshold and refunds
 		/// their deposits.
+		///
+		/// Return value is the number of candidates left in the list.
 		pub fn kick_stale_candidates(
 			candidates: BoundedVec<CandidateInfo<T::AccountId, BalanceOf<T>>, T::MaxCandidates>,
 		) -> usize {

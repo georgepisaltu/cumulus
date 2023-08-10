@@ -13,27 +13,13 @@ pub mod pallet {
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
-	/// Basic information about a collation candidate.
-	#[derive(
-		PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug, scale_info::TypeInfo, MaxEncodedLen,
-	)]
-	pub struct CandidateInfo<AccountId, Score> {
-		/// Account identifier.
-		pub who: AccountId,
-		/// Reserved deposit.
-		pub deposit: Score,
-	}
-
 	#[pallet::pallet]
 	pub struct Pallet<T, I = ()>(_);
 
 	#[pallet::storage]
 	#[pallet::getter(fn candidate_count)]
-	pub type List<T: Config<I>, I: 'static = ()> = StorageValue<
-		_,
-		BoundedVec<CandidateInfo<T::AccountId, T::Score>, T::MaxEntries>,
-		ValueQuery,
-	>;
+	pub type List<T: Config<I>, I: 'static = ()> =
+		StorageValue<_, BoundedVec<T::AccountId, T::MaxEntries>, ValueQuery>;
 
 	#[pallet::config]
 	pub trait Config<I: 'static = ()>: frame_system::Config {
@@ -94,27 +80,15 @@ impl<T: Config<I>, I: 'static> SortedListProvider<T::AccountId> for Pallet<T, I>
 
 	fn iter() -> Box<dyn Iterator<Item = T::AccountId>> {
 		let binding = <List<T, I>>::get();
-		Box::new(
-			binding
-				.iter()
-				.map(|candidate_info| candidate_info.who.clone())
-				.collect::<Vec<_>>()
-				.into_iter(),
-		)
+		Box::new(binding.iter().cloned().collect::<Vec<_>>().into_iter())
 	}
 
 	fn iter_from(
 		start: &T::AccountId,
 	) -> Result<Box<dyn Iterator<Item = T::AccountId>>, Self::Error> {
 		let binding = <List<T, I>>::get();
-		let iter = Box::new(
-			binding
-				.iter()
-				.map(|candidate_info| candidate_info.who.clone())
-				.skip_while(|who| who != start)
-				.skip(1),
-		);
-		Ok(Box::new(iter.collect::<Vec<_>>().into_iter()))
+		let iter = Box::new(binding.iter().skip_while(|&who| who != start).skip(1));
+		Ok(Box::new(iter.cloned().collect::<Vec<_>>().into_iter()))
 	}
 
 	fn count() -> u32 {
@@ -122,43 +96,35 @@ impl<T: Config<I>, I: 'static> SortedListProvider<T::AccountId> for Pallet<T, I>
 	}
 
 	fn contains(id: &T::AccountId) -> bool {
-		<List<T, I>>::get().iter().any(|candidate_info| &candidate_info.who == id)
+		<List<T, I>>::get().iter().any(|who| who == id)
 	}
 
 	fn on_insert(id: T::AccountId, score: T::Score) -> Result<(), Error<T, I>> {
 		<List<T, I>>::try_mutate(|list| {
-			let idx = list.partition_point(|candidate_info| candidate_info.deposit >= score);
-			list.try_insert(idx, CandidateInfo { who: id, deposit: score })
-				.map_err(|_| Error::List)?;
+			let idx = list.partition_point(|candidate| T::ScoreProvider::score(candidate) >= score);
+			list.try_insert(idx, id).map_err(|_| Error::List)?;
 			Ok(())
 		})
 	}
 
 	fn get_score(id: &T::AccountId) -> Result<T::Score, Error<T, I>> {
-		<List<T, I>>::get()
-			.iter()
-			.find(|candidate_info| candidate_info.who == *id)
-			.map(|candidate_info| candidate_info.deposit)
-			.ok_or_else(|| Error::List)
+		Ok(T::ScoreProvider::score(id))
 	}
 
 	fn on_update(id: &T::AccountId, new_score: T::Score) -> Result<(), Error<T, I>> {
 		<List<T, I>>::try_mutate(|list| {
-			let mut idx = list
-				.iter()
-				.position(|candiadte_info| candiadte_info.who == *id)
-				.ok_or_else(|| Error::List)?;
-			let increase = list[idx].deposit < new_score;
-			list[idx].deposit = new_score;
+			let mut idx =
+				list.iter().position(|candidate| candidate == id).ok_or_else(|| Error::List)?;
+			let increase = T::ScoreProvider::score(&list[idx]) < new_score;
 
 			if increase && idx < list.len() {
 				idx += 1;
-				while idx < list.len() && list[idx].deposit < new_score {
+				while idx < list.len() && T::ScoreProvider::score(&list[idx]) < new_score {
 					list.as_mut().swap(idx - 1, idx);
 					idx += 1;
 				}
 			} else {
-				while idx > 0 && list[idx].deposit >= new_score {
+				while idx > 0 && T::ScoreProvider::score(&list[idx]) >= new_score {
 					list.as_mut().swap(idx - 1, idx);
 					idx -= 1;
 				}
@@ -169,10 +135,8 @@ impl<T: Config<I>, I: 'static> SortedListProvider<T::AccountId> for Pallet<T, I>
 
 	fn on_remove(id: &T::AccountId) -> Result<(), Error<T, I>> {
 		<List<T, I>>::try_mutate(|list| {
-			let idx = list
-				.iter()
-				.position(|candiadte_info| candiadte_info.who == *id)
-				.ok_or_else(|| Error::List)?;
+			let idx =
+				list.iter().position(|candidate| candidate == id).ok_or_else(|| Error::List)?;
 			list.remove(idx);
 			Ok(())
 		})
@@ -188,10 +152,9 @@ impl<T: Config<I>, I: 'static> SortedListProvider<T::AccountId> for Pallet<T, I>
 		Self::unsafe_clear();
 		let mut new_list = vec![];
 		for id in all.into_iter() {
-			let candidate_info = CandidateInfo { who: id.clone(), deposit: score_of(&id) };
-			new_list.push(candidate_info);
+			new_list.push(id);
 		}
-		new_list.sort_by_key(|candidate_info| candidate_info.deposit);
+		new_list.sort_by(|lhs, rhs| score_of(lhs).cmp(&score_of(rhs)));
 		<List<T, I>>::try_mutate(|list| {
 			*list = new_list.try_into().map_err(|_| Error::List)?;
 			Ok::<(), Error<T, I>>(())
@@ -218,27 +181,10 @@ impl<T: Config<I>, I: 'static> SortedListProvider<T::AccountId> for Pallet<T, I>
 		fn score_update_worst_case(who: &T::AccountId, is_increase: bool) -> Self::Score {
 			let score = Self::get_score(who).unwrap();
 			if is_increase {
-				<List<T, I>>::get().iter().last().map(|candidate_info| candidate_info.deposit).unwrap_or_default() - score
+				<List<T, I>>::get().iter().last().map(|candidate| T::ScoreProvider::score(candidate)).unwrap_or_default() - score
 			} else {
-				score - <List<T, I>>::get().iter().next().map(|candidate_info| candidate_info.deposit).unwrap_or_default()
+				score - <List<T, I>>::get().iter().next().map(|candidate| T::ScoreProvider::score(candidate)).unwrap_or_default()
 			}
 		}
-	}
-}
-
-impl<T: Config<I>, I: 'static> ScoreProvider<T::AccountId> for Pallet<T, I> {
-	type Score = T::Score;
-
-	fn score(who: &T::AccountId) -> Self::Score {
-		<List<T, I>>::get()
-			.iter()
-			.find(|candidate_info| candidate_info.who == *who)
-			.map(|candidate_info| candidate_info.deposit)
-			.unwrap_or_default()
-	}
-
-	#[cfg(feature = "runtime-benchmarks")]
-	fn set_score_of(who: &T::AccountId, weight: Self::Score) {
-		Self::on_update(who, weight).unwrap()
 	}
 }

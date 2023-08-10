@@ -7918,6 +7918,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-simple-list"
+version = "3.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-aura",
+ "pallet-authorship",
+ "pallet-bags-list",
+ "pallet-balances",
+ "pallet-session",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "rand 0.8.5",
+ "scale-info",
+ "sp-consensus-aura",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
+ "sp-tracing",
+]
+
+[[package]]
 name = "pallet-society"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate?branch=master#3ef576eaeb3f42610e85daecc464961cf1295570"
@@ -8318,6 +8345,7 @@ dependencies = [
  "pallet-collator-selection",
  "pallet-parachain-template",
  "pallet-session",
+ "pallet-simple-list",
  "pallet-staking",
  "pallet-sudo",
  "pallet-timestamp",

@@ -74,6 +74,7 @@ cumulus-pallet-xcmp-queue = { path = "../../pallets/xcmp-queue", default-feature
 cumulus-primitives-core = { path = "../../primitives/core", default-features = false }
 cumulus-primitives-utility = { path = "../../primitives/utility", default-features = false }
 pallet-collator-selection = { path = "../../pallets/collator-selection", default-features = false }
+pallet-simple-list = { path = "../../pallets/simple-list", default-features = false }
 parachain-info = { path = "../../parachains/pallets/parachain-info", default-features = false }
 
 [features]
@@ -101,6 +102,7 @@ std = [
 	"pallet-bags-list/std",
 	"pallet-balances/std",
 	"pallet-collator-selection/std",
+	"pallet-simple-list/std",
 	"pallet-session/std",
 	"pallet-sudo/std",
 	"pallet-staking/std",
@@ -139,6 +141,7 @@ runtime-benchmarks = [
 	"pallet-balances/runtime-benchmarks",
 	"pallet-bags-list/runtime-benchmarks",
 	"pallet-collator-selection/runtime-benchmarks",
+	"pallet-simple-list/runtime-benchmarks",
 	"pallet-parachain-template/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
@@ -166,6 +169,7 @@ try-runtime = [
 	"pallet-balances/try-runtime",
 	"pallet-bags-list/try-runtime",
 	"pallet-collator-selection/try-runtime",
+	"pallet-simple-list/try-runtime",
 	"pallet-session/try-runtime",
 	"pallet-sudo/try-runtime",
 	"pallet-staking/try-runtime",

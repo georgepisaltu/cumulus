@@ -80,10 +80,9 @@ const LOG_TARGET: &str = "runtime::collator-selection";
 pub mod pallet {
 	pub use crate::weights::WeightInfo;
 	use core::ops::Div;
-	use frame_election_provider_support::{ScoreProvider, SortedListProvider};
 	use frame_support::{
 		dispatch::{DispatchClass, DispatchResultWithPostInfo},
-		pallet_prelude::*,
+		pallet_prelude::{OptionQuery, *},
 		sp_runtime::{
 			traits::{AccountIdConversion, CheckedSub, Saturating, Zero},
 			RuntimeDebug,
@@ -143,8 +142,6 @@ pub mod pallet {
 		/// Maximum number of invulnerables.
 		type MaxInvulnerables: Get<u32>;
 
-		type CandidateList: SortedListProvider<Self::AccountId, Score = BalanceOf<Self>>;
-
 		// Will be kicked if block is not produced in threshold.
 		type KickThreshold: Get<BlockNumberFor<Self>>;
 
@@ -196,7 +193,14 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn candidates)]
 	pub type Candidates<T: Config> =
-		StorageMap<_, Identity, T::AccountId, BalanceOf<T>, ValueQuery>;
+		StorageMap<_, Identity, T::AccountId, BalanceOf<T>, OptionQuery>;
+
+	/// The (community, limited) collation candidates. `Candidates` and `Invulnerables` should be
+	/// mutually exclusive.
+	#[pallet::storage]
+	#[pallet::getter(fn candidate_list)]
+	pub type CandidateList<T: Config> =
+		StorageValue<_, BoundedVec<T::AccountId, T::MaxCandidates>, ValueQuery>;
 
 	/// Last block authored by collator.
 	#[pallet::storage]
@@ -474,7 +478,7 @@ pub mod pallet {
 						who.clone(),
 						frame_system::Pallet::<T>::block_number() + T::KickThreshold::get(),
 					);
-					T::CandidateList::on_insert(who.clone(), deposit)
+					Self::insert_candidate(who.clone(), deposit)
 						.map_err(|_| Error::<T>::InsertToCandidateListFailed)?;
 					let new_length = length + 1;
 					<CandidateCount<T>>::put(new_length);
@@ -602,7 +606,7 @@ pub mod pallet {
 						.saturating_add(amount);
 					*maybe_deposit = Some(new_deposit);
 					T::Currency::reserve(&who, amount)?;
-					T::CandidateList::on_increase(&who, amount)
+					Self::update_candidate_deposit(&who, new_deposit, true)
 						.map_err(|_| Error::<T>::UpdateCandidateListFailed)?;
 					Ok(new_deposit)
 				},
@@ -637,7 +641,7 @@ pub mod pallet {
 					ensure!(new_deposit >= <CandidacyBond<T>>::get(), Error::<T>::DepositTooLow);
 					*maybe_deposit = Some(new_deposit);
 					T::Currency::unreserve(&who, amount);
-					T::CandidateList::on_decrease(&who, amount)
+					Self::update_candidate_deposit(&who, new_deposit, false)
 						.map_err(|_| Error::<T>::UpdateCandidateListFailed)?;
 					Ok(new_deposit)
 				},
@@ -688,8 +692,6 @@ pub mod pallet {
 					let target_deposit =
 						maybe_target_deposit.ok_or(Error::<T>::TargetIsNotCandidate)?;
 					T::Currency::unreserve(&target, target_deposit);
-					T::CandidateList::on_remove(&target)
-						.map_err(|_| Error::<T>::RemoveFromCandidateListFailed)?;
 					<LastAuthoredBlock<T>>::remove(target.clone());
 					*maybe_target_deposit = None;
 					Ok(target_deposit)
@@ -702,8 +704,19 @@ pub mod pallet {
 				who.clone(),
 				frame_system::Pallet::<T>::block_number() + T::KickThreshold::get(),
 			);
-			T::CandidateList::on_insert(who.clone(), deposit)
-				.map_err(|_| Error::<T>::InsertToCandidateListFailed)?;
+			<CandidateList<T>>::try_mutate(|list| {
+				let mut idx = list
+					.iter()
+					.position(|candidate| *candidate == target)
+					.ok_or(Error::<T>::TargetIsNotCandidate)?;
+				list[idx] = who.clone();
+				idx += 1;
+				while idx < list.len() && Self::candidate_deposit(&list[idx]) < deposit {
+					list.as_mut().swap(idx - 1, idx);
+					idx += 1;
+				}
+				Ok::<(), Error<T>>(())
+			})?;
 
 			Self::deposit_event(Event::CandidateReplaced { old: target, new: who, deposit });
 			Ok(Some(T::WeightInfo::take_candidate_slot(length)).into())
@@ -738,7 +751,7 @@ pub mod pallet {
 					let deposit = maybe_deposit.ok_or(Error::<T>::NotCandidate)?;
 					T::Currency::unreserve(who, deposit);
 					*maybe_deposit = None;
-					T::CandidateList::on_remove(&who)
+					Self::remove_candidate(&who)
 						.map_err(|_| Error::<T>::RemoveFromCandidateListFailed)?;
 					if remove_last_authored {
 						<LastAuthoredBlock<T>>::remove(who.clone())
@@ -758,7 +771,8 @@ pub mod pallet {
 			let desired_candidates: usize =
 				<DesiredCandidates<T>>::get().try_into().unwrap_or(usize::MAX);
 			let mut collators = Self::invulnerables().to_vec();
-			collators.extend(T::CandidateList::iter().take(desired_candidates));
+			collators
+				.extend(<CandidateList<T>>::get().iter().rev().cloned().take(desired_candidates));
 			collators
 		}
 
@@ -800,6 +814,58 @@ pub mod pallet {
 				.count()
 				.try_into()
 				.expect("filter_map operation can't result in a bounded vec larger than its original; qed")
+		}
+
+		fn candidate_deposit(who: &T::AccountId) -> BalanceOf<T> {
+			<Candidates<T>>::get(who).unwrap_or_default()
+		}
+
+		fn insert_candidate(who: T::AccountId, deposit: BalanceOf<T>) -> Result<(), DispatchError> {
+			<CandidateList<T>>::try_mutate(|list| {
+				let idx =
+					list.partition_point(|candidate| Self::candidate_deposit(candidate) < deposit);
+				list.try_insert(idx, who).map_err(|_| Error::InsertToCandidateListFailed)?;
+				Ok::<(), Error<T>>(())
+			})?;
+			Ok(())
+		}
+
+		fn remove_candidate(id: &T::AccountId) -> Result<(), Error<T>> {
+			<CandidateList<T>>::try_mutate(|list| {
+				let idx = list
+					.iter()
+					.position(|candidate| candidate == id)
+					.ok_or_else(|| Error::RemoveFromCandidateListFailed)?;
+				list.remove(idx);
+				Ok(())
+			})
+		}
+
+		fn update_candidate_deposit(
+			id: &T::AccountId,
+			new_deposit: BalanceOf<T>,
+			is_increase: bool,
+		) -> Result<(), Error<T>> {
+			<CandidateList<T>>::try_mutate(|list| {
+				let mut idx = list
+					.iter()
+					.position(|candidate| candidate == id)
+					.ok_or_else(|| Error::<T>::NotCandidate)?;
+
+				if is_increase && idx < list.len() {
+					idx += 1;
+					while idx < list.len() && Self::candidate_deposit(&list[idx]) < new_deposit {
+						list.as_mut().swap(idx - 1, idx);
+						idx += 1;
+					}
+				} else {
+					while idx > 0 && Self::candidate_deposit(&list[idx]) >= new_deposit {
+						list.as_mut().swap(idx - 1, idx);
+						idx -= 1;
+					}
+				}
+				Ok(())
+			})
 		}
 	}
 
@@ -853,22 +919,6 @@ pub mod pallet {
 		}
 		fn end_session(_: SessionIndex) {
 			// we don't care.
-		}
-	}
-
-	impl<T: Config> ScoreProvider<T::AccountId> for Pallet<T> {
-		type Score = BalanceOf<T>;
-
-		fn score(who: &T::AccountId) -> Self::Score {
-			<Candidates<T>>::get(who)
-		}
-
-		#[cfg(feature = "runtime-benchmarks")]
-		fn set_score_of(who: &T::AccountId, weight: Self::Score) {
-			let active: BalanceOf<T> = weight.try_into().map_err(|_| ()).unwrap();
-			Candidates::<T>::mutate(who, |deposit| {
-				*deposit = active;
-			});
 		}
 	}
 }

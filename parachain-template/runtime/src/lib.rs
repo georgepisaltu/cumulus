@@ -450,38 +450,12 @@ impl pallet_collator_selection::Config for Runtime {
 	type MaxCandidates = ConstU32<100>;
 	type MinEligibleCollators = ConstU32<4>;
 	type MaxInvulnerables = ConstU32<20>;
-	type CandidateList = CandidateSimpleList;
 	// should be a multiple of session or things will get inconsistent
 	type KickThreshold = Period;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
 	type ValidatorRegistration = Session;
 	type WeightInfo = ();
-}
-
-parameter_types! {
-	pub const BagThresholds: &'static [u128] = &[];
-}
-
-type CandidateBagsListInstance = pallet_bags_list::Instance1;
-impl pallet_bags_list::Config<CandidateBagsListInstance> for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	/// The candidate bags-list is loosely kept up to date, and the real source
-	/// of truth for the score of each node is the collator-selection pallet.
-	type ScoreProvider = CollatorSelection;
-	type BagThresholds = BagThresholds;
-	type Score = Balance;
-	type WeightInfo = pallet_bags_list::weights::SubstrateWeight<Runtime>;
-}
-
-type CandidateSimpleListInstance = pallet_simple_list::Instance1;
-impl pallet_simple_list::Config<CandidateSimpleListInstance> for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	/// The candidate bags-list is loosely kept up to date, and the real source
-	/// of truth for the score of each node is the collator-selection pallet.
-	type ScoreProvider = CollatorSelection;
-	type MaxEntries = ConstU32<100>;
-	type Score = Balance;
 }
 
 /// Configure the pallet template in pallets/template.
@@ -512,8 +486,6 @@ construct_runtime!(
 		Session: pallet_session = 22,
 		Aura: pallet_aura = 23,
 		AuraExt: cumulus_pallet_aura_ext = 24,
-		CandidateList: pallet_bags_list::<Instance1> = 25,
-		CandidateSimpleList: pallet_simple_list::<Instance1> = 26,
 
 		// XCM helpers.
 		XcmpQueue: cumulus_pallet_xcmp_queue = 30,

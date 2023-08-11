@@ -24,7 +24,6 @@ use crate::Pallet as CollatorSelection;
 use frame_benchmarking::{
 	account, impl_benchmark_test_suite, v2::*, whitelisted_caller, BenchmarkError,
 };
-use frame_election_provider_support::SortedListProvider;
 use frame_support::{
 	codec::Decode,
 	traits::{Currency, EnsureOrigin, Get, ReservableCurrency},
@@ -161,12 +160,20 @@ mod benchmarks {
 				.unwrap();
 		}
 		// ... and register them.
-		for (who, _) in candidates {
+		for (who, _) in candidates.iter() {
 			let deposit = <CandidacyBond<T>>::get();
-			T::Currency::make_free_balance_be(&who, deposit * 1000_u32.into());
+			T::Currency::make_free_balance_be(who, deposit * 1000_u32.into());
 			<Candidates<T>>::insert(who.clone(), deposit);
-			T::CandidateList::on_insert(who.clone(), deposit).unwrap();
-			T::Currency::reserve(&who, deposit)?;
+			// T::CandidateList::on_insert(who.clone(), deposit).unwrap();
+			<CandidateList<T>>::try_mutate(|list| {
+				let idx = list.partition_point(|candidate| {
+					<Candidates<T>>::get(candidate).unwrap_or_default() >= deposit
+				});
+				list.try_insert(idx, who.clone()).unwrap();
+				Ok::<(), BenchmarkError>(())
+			})
+			.unwrap();
+			T::Currency::reserve(who, deposit)?;
 			<LastAuthoredBlock<T>>::insert(
 				who.clone(),
 				frame_system::Pallet::<T>::block_number() + T::KickThreshold::get(),

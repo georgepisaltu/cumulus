@@ -15,12 +15,10 @@
 
 use crate as collator_selection;
 use crate::{mock::*, Error};
-use frame_election_provider_support::SortedListProvider;
 use frame_support::{
 	assert_noop, assert_ok,
 	traits::{Currency, OnInitialize},
 };
-use pallet_bags_list::{Error as BagsListError, ListError};
 use pallet_balances::Error as BalancesError;
 use sp_runtime::{testing::UintAuthorityId, traits::BadOrigin, BuildStorage};
 
@@ -587,7 +585,10 @@ fn take_candidate_slot_works() {
 			<crate::Candidates<Test>>::iter().collect::<Vec<_>>(),
 			vec![candidate_3, candidate_5, candidate_6]
 		);
-		assert_eq!(CandidateList::iter().collect::<Vec<_>>(), vec![3, 5, 6]);
+		assert_eq!(
+			<crate::CandidateList<Test>>::get().iter().rev().copied().collect::<Vec<_>>(),
+			vec![6, 3, 5]
+		);
 	});
 }
 
@@ -801,19 +802,11 @@ fn candidate_list_works() {
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(4)));
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
 
-		assert_noop!(
-			CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 3),
-			BagsListError::<Test, pallet_bags_list::Instance1>::List(ListError::NotHeavier)
-		);
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 10));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 4));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 3));
 
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(3), 20));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(3), 5));
 
 		assert_ok!(CollatorSelection::decrease_bond(RuntimeOrigin::signed(3), 20));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 3));
 	});
 }
 
@@ -967,45 +960,6 @@ fn session_management_max_candidates() {
 }
 
 #[test]
-fn session_management_increase_bid_without_list_update() {
-	new_test_ext().execute_with(|| {
-		initialize_to_block(1);
-
-		assert_eq!(SessionChangeBlock::get(), 0);
-		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
-
-		initialize_to_block(4);
-
-		assert_eq!(SessionChangeBlock::get(), 0);
-		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
-
-		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(3)));
-		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(4)));
-		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
-		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 50));
-
-		// session won't see this.
-		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
-		// but we have a new candidate.
-		assert_eq!(<crate::Candidates<Test>>::iter().count(), 3);
-
-		initialize_to_block(10);
-		assert_eq!(SessionChangeBlock::get(), 10);
-		// pallet-session has 1 session delay; current validators are the same.
-		assert_eq!(Session::validators(), vec![1, 2]);
-		// queued ones are changed, and now we have 4.
-		assert_eq!(Session::queued_keys().len(), 4);
-		// session handlers (aura, et. al.) cannot see this yet.
-		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
-
-		initialize_to_block(20);
-		assert_eq!(SessionChangeBlock::get(), 20);
-		// changed are now reflected to session handlers.
-		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 3, 4]);
-	});
-}
-
-#[test]
 fn session_management_increase_bid_with_list_update() {
 	new_test_ext().execute_with(|| {
 		initialize_to_block(1);
@@ -1022,7 +976,6 @@ fn session_management_increase_bid_with_list_update() {
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(4)));
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 50));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 3));
 
 		// session won't see this.
 		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
@@ -1046,7 +999,7 @@ fn session_management_increase_bid_with_list_update() {
 }
 
 #[test]
-fn session_management_candidate_list_lazy_sort() {
+fn session_management_candidate_list_eager_sort() {
 	new_test_ext().execute_with(|| {
 		initialize_to_block(1);
 
@@ -1062,10 +1015,6 @@ fn session_management_candidate_list_lazy_sort() {
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(4)));
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 50));
-		// even though candidate 5 has a higher bid than both 3 and 4, we try
-		// to put it in front of 4 and not 3; the list should be lazily sorted
-		// and not reorder candidate 5 ahead of 4.
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 4));
 
 		// session won't see this.
 		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
@@ -1084,7 +1033,7 @@ fn session_management_candidate_list_lazy_sort() {
 		initialize_to_block(20);
 		assert_eq!(SessionChangeBlock::get(), 20);
 		// changed are now reflected to session handlers.
-		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 3, 5]);
+		assert_eq!(SessionHandlerCollators::get(), vec![1, 2, 5, 3]);
 	});
 }
 
@@ -1106,16 +1055,13 @@ fn session_management_reciprocal_outbidding() {
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
 
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 50));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 3));
 
 		initialize_to_block(5);
 
 		// candidates 3 and 4 saw they were outbid and preemptively bid more
 		// than 5 in the next block.
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(4), 60));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(4), 5));
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(3), 60));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(3), 5));
 
 		// session won't see this.
 		assert_eq!(SessionHandlerCollators::get(), vec![1, 2]);
@@ -1156,14 +1102,11 @@ fn session_management_decrease_bid_after_auction() {
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(5)));
 
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(5), 50));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(5), 3));
 
 		initialize_to_block(5);
 
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(4), 60));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(4), 5));
 		assert_ok!(CollatorSelection::increase_bond(RuntimeOrigin::signed(3), 60));
-		assert_ok!(CandidateList::put_in_front_of(RuntimeOrigin::signed(3), 5));
 
 		initialize_to_block(5);
 

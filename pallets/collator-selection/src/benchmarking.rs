@@ -163,13 +163,8 @@ mod benchmarks {
 		for (who, _) in candidates.iter() {
 			let deposit = <CandidacyBond<T>>::get();
 			T::Currency::make_free_balance_be(who, deposit * 1000_u32.into());
-			<Candidates<T>>::insert(who.clone(), deposit);
-			// T::CandidateList::on_insert(who.clone(), deposit).unwrap();
 			<CandidateList<T>>::try_mutate(|list| {
-				let idx = list.partition_point(|candidate| {
-					<Candidates<T>>::get(candidate).unwrap_or_default() >= deposit
-				});
-				list.try_insert(idx, who.clone()).unwrap();
+				list.try_push(CandidateInfo { who: who.clone(), deposit }).unwrap();
 				Ok::<(), BenchmarkError>(())
 			})
 			.unwrap();
@@ -250,7 +245,7 @@ mod benchmarks {
 		register_validators::<T>(c);
 		register_candidates::<T>(c);
 
-		let caller = <Candidates<T>>::iter().last().unwrap().0.clone();
+		let caller = <CandidateList<T>>::get().iter().last().unwrap().who.clone();
 		v2::whitelist!(caller);
 
 		let bond_amount: BalanceOf<T> = T::Currency::minimum_balance();
@@ -266,7 +261,7 @@ mod benchmarks {
 			.into(),
 		);
 		assert!(
-			<Candidates<T>>::iter().last().unwrap().1 ==
+			<CandidateList<T>>::get().iter().last().unwrap().deposit ==
 				T::Currency::minimum_balance() * 2u32.into()
 		);
 		Ok(())
@@ -282,7 +277,7 @@ mod benchmarks {
 		register_validators::<T>(c);
 		register_candidates::<T>(c);
 
-		let caller = <Candidates<T>>::iter().last().unwrap().0.clone();
+		let caller = <CandidateList<T>>::get().iter().last().unwrap().who.clone();
 		v2::whitelist!(caller);
 
 		<CollatorSelection<T>>::increase_bond(
@@ -303,7 +298,10 @@ mod benchmarks {
 			}
 			.into(),
 		);
-		assert!(<Candidates<T>>::iter().last().unwrap().1 == T::Currency::minimum_balance());
+		assert!(
+			<CandidateList<T>>::get().iter().last().unwrap().deposit ==
+				T::Currency::minimum_balance()
+		);
 		Ok(())
 	}
 
@@ -355,7 +353,7 @@ mod benchmarks {
 		)
 		.unwrap();
 
-		let target = <Candidates<T>>::iter().last().unwrap().0.clone();
+		let target = <CandidateList<T>>::get().iter().last().unwrap().who.clone();
 
 		#[extrinsic_call]
 		_(RawOrigin::Signed(caller.clone()), bond / 2u32.into(), target.clone());
@@ -375,7 +373,7 @@ mod benchmarks {
 		register_validators::<T>(c);
 		register_candidates::<T>(c);
 
-		let leaving = <Candidates<T>>::iter().last().unwrap().0.clone();
+		let leaving = <CandidateList<T>>::get().iter().last().unwrap().who.clone();
 		v2::whitelist!(leaving);
 
 		#[extrinsic_call]
@@ -422,7 +420,10 @@ mod benchmarks {
 
 		let new_block: BlockNumberFor<T> = 1800u32.into();
 		let zero_block: BlockNumberFor<T> = 0u32.into();
-		let candidates: Vec<T::AccountId> = <Candidates<T>>::iter().map(|(who, _)| who).collect();
+		let candidates: Vec<T::AccountId> = <CandidateList<T>>::get()
+			.iter()
+			.map(|candidate_info| candidate_info.who.clone())
+			.collect();
 
 		let non_removals = c.saturating_sub(r);
 
@@ -442,7 +443,7 @@ mod benchmarks {
 
 		let min_candidates = min_candidates::<T>();
 		let pre_length = <CandidateCount<T>>::get();
-		assert!(pre_length as usize == <Candidates<T>>::iter().count());
+		assert!(pre_length as usize == <CandidateList<T>>::decode_len().unwrap());
 
 		frame_system::Pallet::<T>::set_block_number(new_block);
 

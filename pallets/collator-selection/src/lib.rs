@@ -181,13 +181,6 @@ pub mod pallet {
 	pub type Invulnerables<T: Config> =
 		StorageValue<_, BoundedVec<T::AccountId, T::MaxInvulnerables>, ValueQuery>;
 
-	/// Current number of candidates in the `Candidates` map.
-	///
-	/// This must always be less than [`Config::MaxCandidates`].
-	#[pallet::storage]
-	#[pallet::getter(fn candidate_count)]
-	pub type CandidateCount<T> = StorageValue<_, u32, ValueQuery>;
-
 	/// The (community, limited) collation candidates. `Candidates` and `Invulnerables` should be
 	/// mutually exclusive.
 	#[pallet::storage]
@@ -348,7 +341,8 @@ pub mod pallet {
 			// don't wipe out the collator set
 			if new.is_empty() {
 				ensure!(
-					CandidateCount::<T>::get() >= T::MinEligibleCollators::get(),
+					CandidateList::<T>::decode_len().unwrap_or_default() >=
+						T::MinEligibleCollators::get().try_into().unwrap(),
 					Error::<T>::TooFewEligibleCollators
 				);
 			}
@@ -500,7 +494,7 @@ pub mod pallet {
 				Self::eligible_collators() > T::MinEligibleCollators::get(),
 				Error::<T>::TooFewEligibleCollators
 			);
-			let length = <CandidateCount<T>>::get();
+			let length = <CandidateList<T>>::decode_len().unwrap_or_default();
 			// Do remove their last authored block.
 			Self::try_remove_candidate(&who, true)?;
 
@@ -551,7 +545,10 @@ pub mod pallet {
 					.unwrap_or_default()
 					.try_into()
 					.unwrap_or(T::MaxInvulnerables::get().saturating_sub(1)),
-				<CandidateCount<T>>::get(),
+				<CandidateList<T>>::decode_len()
+					.unwrap_or_default()
+					.try_into()
+					.unwrap_or_default(),
 			);
 
 			Ok(Some(weight_used).into())
@@ -603,6 +600,7 @@ pub mod pallet {
 						.ok_or_else(|| Error::<T>::NotCandidate)?;
 					let new_deposit = candidates[idx].deposit.saturating_add(amount);
 					T::Currency::reserve(&who, amount)?;
+					candidates[idx].deposit = new_deposit;
 					Self::update_candidate_deposit(idx, &who, new_deposit, true)
 						.map_err(|_| Error::<T>::UpdateCandidateListFailed)?;
 					Ok(new_deposit)
@@ -638,6 +636,7 @@ pub mod pallet {
 					let new_deposit = candidates[idx].deposit.saturating_sub(amount);
 					ensure!(new_deposit >= <CandidacyBond<T>>::get(), Error::<T>::DepositTooLow);
 					T::Currency::unreserve(&who, amount);
+					candidates[idx].deposit = new_deposit;
 					Self::update_candidate_deposit(idx, &who, new_deposit, false)
 						.map_err(|_| Error::<T>::UpdateCandidateListFailed)?;
 					Ok(new_deposit)
@@ -681,7 +680,7 @@ pub mod pallet {
 
 			ensure!(deposit >= Self::candidacy_bond(), Error::<T>::InsufficientBond);
 
-			let length = <CandidateCount<T>>::get();
+			let length = <CandidateList<T>>::decode_len().unwrap_or_default();
 			let (target_info_idx, target_info) =
 				<CandidateList<T>>::try_mutate(
 					|candidates| -> Result<
@@ -721,7 +720,7 @@ pub mod pallet {
 			})?;
 
 			Self::deposit_event(Event::CandidateReplaced { old: target, new: who, deposit });
-			Ok(Some(T::WeightInfo::take_candidate_slot(length)).into())
+			Ok(Some(T::WeightInfo::take_candidate_slot(length as u32)).into())
 		}
 	}
 
@@ -734,12 +733,16 @@ pub mod pallet {
 		/// Return the total number of accounts that are eligible collators (candidates and
 		/// invulnerables).
 		fn eligible_collators() -> u32 {
-			<CandidateCount<T>>::get().saturating_add(
-				Invulnerables::<T>::decode_len()
-					.unwrap_or_default()
-					.try_into()
-					.unwrap_or(u32::MAX),
-			)
+			<CandidateList<T>>::decode_len()
+				.unwrap_or_default()
+				.try_into()
+				.unwrap_or(u32::MAX)
+				.saturating_add(
+					Invulnerables::<T>::decode_len()
+						.unwrap_or_default()
+						.try_into()
+						.unwrap_or(u32::MAX),
+				)
 		}
 
 		/// Removes a candidate if they exist and sends them back their deposit.
@@ -754,8 +757,9 @@ pub mod pallet {
 					.ok_or(Error::<T>::NotCandidate)?;
 				let deposit = candidates[idx].deposit;
 				T::Currency::unreserve(who, deposit);
-				Self::remove_candidate(&who)
-					.map_err(|_| Error::<T>::RemoveFromCandidateListFailed)?;
+				// Self::remove_candidate(&who)
+				// 	.map_err(|_| Error::<T>::RemoveFromCandidateListFailed)?;
+				candidates.remove(idx);
 				if remove_last_authored {
 					<LastAuthoredBlock<T>>::remove(who.clone())
 				};
@@ -904,13 +908,14 @@ pub mod pallet {
 				<frame_system::Pallet<T>>::block_number(),
 			);
 
-			let candidates_len_before = <CandidateCount<T>>::get();
+			let candidates_len_before = <CandidateList<T>>::decode_len().unwrap_or_default();
 			let active_candidates_count = Self::kick_stale_candidates(
 				<CandidateList<T>>::get()
 					.iter()
 					.map(|candidate_info| candidate_info.who.clone()),
 			);
-			let removed = candidates_len_before.saturating_sub(active_candidates_count);
+			let removed = candidates_len_before
+				.saturating_sub(active_candidates_count.try_into().unwrap_or_default());
 			let result = Self::assemble_collators();
 
 			frame_system::Pallet::<T>::register_extra_weight_unchecked(

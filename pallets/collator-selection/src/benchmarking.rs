@@ -107,7 +107,10 @@ fn min_candidates<T: Config>() -> u32 {
 
 fn min_invulnerables<T: Config>() -> u32 {
 	let min_collators = T::MinEligibleCollators::get();
-	let candidates_length = <CandidateCount<T>>::get();
+	let candidates_length = <CandidateList<T>>::decode_len()
+		.unwrap_or_default()
+		.try_into()
+		.unwrap_or_default();
 	min_collators.saturating_sub(candidates_length)
 }
 
@@ -442,13 +445,15 @@ mod benchmarks {
 		}
 
 		let min_candidates = min_candidates::<T>();
-		let pre_length = <CandidateCount<T>>::get();
-		assert!(pre_length as usize == <CandidateList<T>>::decode_len().unwrap());
+		let pre_length = <CandidateList<T>>::decode_len().unwrap_or_default();
 
 		frame_system::Pallet::<T>::set_block_number(new_block);
 
-		assert!(<CandidateCount<T>>::get() == c);
-
+		let current_length: u32 = <CandidateList<T>>::decode_len()
+			.unwrap_or_default()
+			.try_into()
+			.unwrap_or_default();
+		assert!(c == current_length);
 		#[block]
 		{
 			<CollatorSelection<T> as SessionManager<_>>::new_session(0);
@@ -458,16 +463,20 @@ mod benchmarks {
 			// candidates > removals and remaining candidates > min candidates
 			// => remaining candidates should be shorter than before removal, i.e. some were
 			//    actually removed.
-			assert!(<CandidateCount<T>>::get() < pre_length);
+			assert!(<CandidateList<T>>::decode_len().unwrap_or_default() < pre_length);
 		} else if c > r && non_removals < min_candidates {
 			// candidates > removals and remaining candidates would be less than min candidates
 			// => remaining candidates should equal min candidates, i.e. some were removed up to
 			//    the minimum, but then any more were "forced" to stay in candidates.
-			assert!(<CandidateCount<T>>::get() == min_candidates);
+			let current_length: u32 = <CandidateList<T>>::decode_len()
+				.unwrap_or_default()
+				.try_into()
+				.unwrap_or_default();
+			assert!(min_candidates == current_length);
 		} else {
 			// removals >= candidates, non removals must == 0
 			// can't remove more than exist
-			assert!(<CandidateCount<T>>::get() == pre_length);
+			assert!(<CandidateList<T>>::decode_len().unwrap_or_default() == pre_length);
 		}
 	}
 

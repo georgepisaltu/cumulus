@@ -5373,8 +5373,7 @@ dependencies = [
  "frame-try-runtime",
  "pallet-aura",
  "pallet-authorship",
- "pallet-balances",
- "pallet-collator-selection",
+ "pallet-fixed",
  "pallet-glutton",
  "pallet-session",
  "pallet-sudo",
@@ -8428,6 +8427,30 @@ dependencies = [
  "sp-runtime",
  "sp-staking",
  "sp-std",
+]
+
+[[package]]
+name = "pallet-fixed"
+version = "1.0.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-aura",
+ "pallet-authorship",
+ "pallet-session",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "rand 0.8.5",
+ "scale-info",
+ "sp-consensus-aura",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
+ "sp-tracing",
 ]
 
 [[package]]

@@ -47,7 +47,6 @@ pub mod weights;
 pub mod xcm_config;
 
 use cumulus_pallet_parachain_system::RelayNumberStrictlyIncreases;
-use pallet_xcm::{EnsureXcm, IsVoiceOfBody};
 use sp_api::impl_runtime_apis;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -85,8 +84,6 @@ use parachains_common::{AccountId, Signature, HOURS, SLOT_DURATION};
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
-use xcm::latest::prelude::BodyId;
-use xcm_config::KusamaLocation;
 
 impl_opaque_keys! {
 	pub struct SessionKeys {
@@ -163,7 +160,7 @@ impl frame_system::Config for Runtime {
 	type BlockHashCount = BlockHashCount;
 	type Version = Version;
 	type PalletInfo = PalletInfo;
-	type AccountData = pallet_balances::AccountData<Balance>;
+	type AccountData = ();
 	type OnNewAccount = ();
 	type OnKilledAccount = ();
 	type DbWeight = ();
@@ -206,7 +203,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (Fixed,);
 }
 
 pub const PERIOD: u32 = 6 * HOURS;
@@ -215,10 +212,13 @@ pub const OFFSET: u32 = 0;
 impl pallet_session::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
-	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
+	type ValidatorIdOf = pallet_fixed::IdentityCollator;
+	// TODO: decide how often the session should end, collators aren't changing
+	// often but there may be additions by the root user which need to come in
+	// at some point so we must have new sessions.
 	type ShouldEndSession = pallet_session::PeriodicSessions<ConstU32<PERIOD>, ConstU32<OFFSET>>;
 	type NextSessionRotation = pallet_session::PeriodicSessions<ConstU32<PERIOD>, ConstU32<OFFSET>>;
-	type SessionManager = CollatorSelection;
+	type SessionManager = Fixed;
 	type SessionHandler = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
 	type Keys = SessionKeys;
 	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
@@ -231,47 +231,21 @@ impl pallet_aura::Config for Runtime {
 	type AllowMultipleBlocksPerSlot = ConstBool<false>;
 }
 
-impl pallet_balances::Config for Runtime {
-	type Balance = u32;
-	type DustRemoval = ();
-	/// The ubiquitous event type.
-	type RuntimeEvent = RuntimeEvent;
-	type ExistentialDeposit = 1;
-	type AccountStore = System;
-	type WeightInfo = weights::pallet_balances::WeightInfo<Runtime>;
-	type MaxLocks = ConstU32<50>;
-	type MaxReserves = ConstU32<50>;
-	type ReserveIdentifier = [u8; 8];
-	type RuntimeHoldReason = RuntimeHoldReason;
-	type FreezeIdentifier = ();
-	type MaxHolds = ConstU32<0>;
-	type MaxFreezes = ConstU32<0>;
-}
-
 parameter_types! {
-	pub const PotId: PalletId = PalletId(*b"PotStake");
+	// Symbolic, could be removed.
 	pub const SessionLength: BlockNumber = 6 * HOURS;
-	pub const StakingAdminBodyId: BodyId = BodyId::Defense;
 }
 
-pub type CollatorSelectionUpdateOrigin = EitherOfDiverse<
-	EnsureRoot<AccountId>,
-	EnsureXcm<IsVoiceOfBody<KusamaLocation, StakingAdminBodyId>>,
->;
+pub type FixedUpdateOrigin = EnsureRoot<AccountId>;
 
-impl pallet_collator_selection::Config for Runtime {
+impl pallet_fixed::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Currency = Balances;
-	type UpdateOrigin = CollatorSelectionUpdateOrigin;
-	type PotId = PotId;
-	type MaxCandidates = ConstU32<100>;
-	type MinEligibleCollators = ConstU32<4>;
-	type MaxInvulnerables = ConstU32<20>;
-	type KickThreshold = ConstU32<PERIOD>;
+	type UpdateOrigin = FixedUpdateOrigin;
+	type MaxCollators = ConstU32<100>;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
-	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
+	type ValidatorIdOf = pallet_fixed::IdentityCollator;
 	type ValidatorRegistration = Session;
-	type WeightInfo = weights::pallet_collator_selection::WeightInfo<Runtime>;
+	// type WeightInfo = weights::pallet_fixed::WeightInfo<Runtime>;
 }
 
 impl pallet_glutton::Config for Runtime {
@@ -301,7 +275,7 @@ construct_runtime! {
 
 		// Collator support
 		Authorship: pallet_authorship::{Pallet, Storage} = 20,
-		CollatorSelection: pallet_collator_selection::{Pallet, Call, Storage, Event<T>, Config<T>} = 21,
+		Fixed: pallet_fixed::{Pallet, Call, Storage, Event<T>, Config<T>} = 21,
 		Session: pallet_session::{Pallet, Call, Storage, Event, Config<T>} = 22,
 		Aura: pallet_aura::{Pallet, Storage, Config<T>} = 23,
 		AuraExt: cumulus_pallet_aura_ext::{Pallet, Storage, Config<T>} = 24,
@@ -364,7 +338,7 @@ mod benches {
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_glutton, Glutton]
 		[pallet_session, SessionBench::<Runtime>]
-		[pallet_collator_selection, CollatorSelection]
+		[pallet_fixed, Fixed]
 	);
 }
 

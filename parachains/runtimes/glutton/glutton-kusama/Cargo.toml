@@ -18,7 +18,6 @@ frame-system-benchmarking = { git = "https://github.com/paritytech/substrate", o
 frame-try-runtime = { git = "https://github.com/paritytech/substrate", default-features = false, optional = true, branch = "master" }
 pallet-aura = { git = "https://github.com/paritytech/substrate", default-features = false, branch = "master" }
 pallet-authorship = { git = "https://github.com/paritytech/substrate", default-features = false, branch = "master" }
-pallet-balances = { git = "https://github.com/paritytech/substrate", default-features = false, branch = "master" }
 pallet-glutton = { git = "https://github.com/paritytech/substrate", default-features = false, optional = true, branch = "master" }
 pallet-session = { git = "https://github.com/paritytech/substrate", default-features = false, branch = "master" }
 pallet-sudo = { git = "https://github.com/paritytech/substrate", default-features = false, optional = true, branch = "master" }
@@ -47,7 +46,7 @@ cumulus-pallet-session-benchmarking = {path = "../../../../pallets/session-bench
 cumulus-pallet-xcm = { path = "../../../../pallets/xcm", default-features = false }
 cumulus-primitives-core = { path = "../../../../primitives/core", default-features = false }
 cumulus-primitives-timestamp = { path = "../../../../primitives/timestamp", default-features = false }
-pallet-collator-selection = { path = "../../../../pallets/collator-selection", default-features = false }
+pallet-fixed = { path = "../../../../pallets/fixed", default-features = false }
 parachain-info = { path = "../../../pallets/parachain-info", default-features = false }
 parachains-common = { path = "../../../common", default-features = false }
 
@@ -61,8 +60,6 @@ runtime-benchmarks = [
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
-	"pallet-balances/runtime-benchmarks",
-	"pallet-collator-selection/runtime-benchmarks",
 	"pallet-glutton/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"cumulus-pallet-parachain-system/runtime-benchmarks",
@@ -78,8 +75,7 @@ std = [
 	"frame-system-rpc-runtime-api/std",
 	"pallet-aura/std",
 	"pallet-authorship/std",
-	"pallet-balances/std",
-	"pallet-collator-selection/std",
+	"pallet-fixed/std",
 	"pallet-glutton/std",
 	"pallet-session/std",
 	"pallet-sudo/std",
@@ -112,8 +108,6 @@ try-runtime = [
 	"frame-try-runtime/try-runtime",
 	"pallet-aura/try-runtime",
 	"pallet-authorship/try-runtime",
-	"pallet-balances/try-runtime",
-	"pallet-collator-selection/try-runtime",
 	"pallet-glutton/try-runtime",
 	"pallet-session/try-runtime",
 	"pallet-sudo/try-runtime",

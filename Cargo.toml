@@ -23,6 +23,7 @@ members = [
 	"pallets/aura-ext",
 	"pallets/collator-selection",
 	"pallets/dmp-queue",
+	"pallets/fixed",
 	"pallets/parachain-system",
 	"pallets/parachain-system/proc-macro",
 	"pallets/session-benchmarking",

@@ -246,7 +246,7 @@ impl pallet_fixed::Config for Runtime {
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = pallet_fixed::IdentityCollator;
 	type ValidatorRegistration = Session;
-	// type WeightInfo = weights::pallet_fixed::WeightInfo<Runtime>;
+	type WeightInfo = weights::pallet_fixed::WeightInfo<Runtime>;
 }
 
 impl pallet_glutton::Config for Runtime {

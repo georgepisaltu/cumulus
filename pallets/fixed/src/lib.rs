@@ -33,8 +33,18 @@
 
 pub use pallet::*;
 
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
+
 #[frame_support::pallet]
 pub mod pallet {
+	pub use crate::weights::WeightInfo;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{EnsureOrigin, ValidatorRegistration},
@@ -82,7 +92,7 @@ pub mod pallet {
 		type ValidatorRegistration: ValidatorRegistration<Self::ValidatorId>;
 
 		// /// The weight information of this pallet.
-		// type WeightInfo: WeightInfo;
+		type WeightInfo: WeightInfo;
 	}
 
 	#[pallet::pallet]
@@ -91,7 +101,7 @@ pub mod pallet {
 
 	/// The collator list.
 	#[pallet::storage]
-	#[pallet::getter(fn invulnerables)]
+	#[pallet::getter(fn collators)]
 	pub type Collators<T: Config> =
 		StorageValue<_, BoundedVec<T::AccountId, T::MaxCollators>, ValueQuery>;
 
@@ -130,9 +140,9 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// A new Invulnerable was added.
+		/// A new collator was added.
 		CollatorAdded { account_id: T::AccountId },
-		/// An Invulnerable was removed.
+		/// An collator was removed.
 		CollatorRemoved { account_id: T::AccountId },
 	}
 
@@ -160,7 +170,9 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::call_index(0)]
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::add_collator(
+			T::MaxCollators::get().saturating_sub(1),
+		))]
 		pub fn add_collator(origin: OriginFor<T>, who: T::AccountId) -> DispatchResult {
 			T::UpdateOrigin::ensure_origin(origin)?;
 
@@ -187,7 +199,7 @@ pub mod pallet {
 		}
 
 		#[pallet::call_index(1)]
-		#[pallet::weight(0)]
+		#[pallet::weight(T::WeightInfo::remove_collator(T::MaxCollators::get()))]
 		pub fn remove_collator(origin: OriginFor<T>, who: T::AccountId) -> DispatchResult {
 			T::UpdateOrigin::ensure_origin(origin)?;
 
@@ -202,8 +214,7 @@ pub mod pallet {
 		}
 	}
 
-	/// Keep track of number of authored blocks per authority, uncles are counted as well since
-	/// they're a valid proof of being online.
+	/// Keep track of number of authored blocks per authority.
 	impl<T: Config + pallet_authorship::Config>
 		pallet_authorship::EventHandler<T::AccountId, BlockNumberFor<T>> for Pallet<T>
 	{
@@ -226,13 +237,13 @@ pub mod pallet {
 				<frame_system::Pallet<T>>::block_number(),
 			);
 
-			let candidates = <Collators<T>>::get().iter().cloned().collect();
+			let collators = <Collators<T>>::get().iter().cloned().collect();
 
 			// frame_system::Pallet::<T>::register_extra_weight_unchecked(
-			// 	T::WeightInfo::new_session(candidates_len_before as u32, removed as u32),
+			// 	T::WeightInfo::new_session(something),
 			// 	DispatchClass::Mandatory,
 			// );
-			Some(candidates)
+			Some(collators)
 		}
 		fn start_session(_: SessionIndex) {
 			// we don't care.

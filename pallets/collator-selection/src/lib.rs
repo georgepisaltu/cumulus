@@ -83,10 +83,6 @@ pub mod pallet {
 	use frame_support::{
 		dispatch::{DispatchClass, DispatchResultWithPostInfo},
 		pallet_prelude::{OptionQuery, *},
-		sp_runtime::{
-			traits::{AccountIdConversion, CheckedSub, Saturating, Zero},
-			RuntimeDebug,
-		},
 		traits::{
 			Currency, EnsureOrigin, ExistenceRequirement::KeepAlive, ReservableCurrency,
 			ValidatorRegistration,
